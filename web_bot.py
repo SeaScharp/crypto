@@ -158,15 +158,13 @@ if st.button("Run Bot"):
     df, exchange_used = get_data(symbol, timeframe, limit)
     df = analyze(df)
 
-    last_time = df.iloc[-1]["time"]
+    signal, price, stop_loss, take_profit = latest_signal(df)
 
-    st.write(
-        "Last Candle Time:",
-        last_time.strftime("%Y-%m-%d %I:%M %p %Z")
-    )
+    last_time = df.iloc[-1]["time"]
 
     st.subheader("Latest Result")
     st.write("Exchange Used:", exchange_used)
+    st.write("Last Candle Time:", last_time.strftime("%Y-%m-%d %I:%M %p %Z"))
     st.write("Price:", round(price, 2))
     st.write("Signal:", signal if signal else "WAIT")
 
