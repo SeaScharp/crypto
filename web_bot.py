@@ -133,7 +133,7 @@ def latest_signal(df):
 
 
 def draw_chart(df):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(10, 4))
 
     ax.plot(df["time"], df["close"], label="Price")
     ax.plot(df["time"], df["ema_fast"], label=f"EMA {ema_fast}")
