@@ -1,160 +1,177 @@
-import streamlit as st
 import ccxt
 import pandas as pd
+import streamlit as st
 import matplotlib.pyplot as plt
+
 from ta.momentum import RSIIndicator
-from ta.trend import MACD
-from ta.volatility import BollingerBands
+from ta.trend import EMAIndicator
 
-st.set_page_config(page_title="Crypto Trading Bot", layout="wide")
 
-st.title("Crypto Trading Strategy Bot")
-st.write("Simple crypto technical analysis using RSI, MACD, and Bollinger Bands.")
+st.set_page_config(page_title="Crypto Strategy Bot", layout="wide")
 
-# Sidebar inputs
-st.sidebar.header("Settings")
+st.title("Crypto Strategy Bot")
 
-exchange_name = st.sidebar.selectbox(
-    "Exchange",
-    ["kraken", "coinbase", "kucoin"]
+symbol = st.selectbox(
+    "Trading Pair",
+    ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"],
+    index=0
 )
 
-symbol = st.sidebar.selectbox(
-    "Symbol",
-    ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"]
+st.subheader("Trade Settings")
+
+leverage = st.selectbox(
+    "Leverage",
+    [1, 2, 3, 5, 10, 15, 20, 25, 50],
+    index=4
 )
 
-timeframe = st.sidebar.selectbox(
+account_size = st.number_input("Account Balance ($)", value=1000.0)
+risk_percent = st.number_input("Risk Per Trade (%)", value=2.0)
+
+timeframe = st.selectbox(
     "Timeframe",
-    ["1m", "5m", "15m", "1h", "4h", "1d"],
-    index=3
+    ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+    index=2
 )
 
-limit = st.sidebar.slider(
+limit = st.number_input(
     "Number of candles",
-    min_value=50,
-    max_value=500,
-    value=200
+    min_value=250,
+    max_value=1000,
+    value=300
 )
 
-# Create exchange safely
-try:
-    exchange_class = getattr(ccxt, exchange_name)
-    exchange = exchange_class({
-        "enableRateLimit": True,
-        "timeout": 30000,
-    })
-except Exception as e:
-    st.error(f"Could not load exchange: {e}")
-    st.stop()
+rsi_buy = st.number_input("RSI Long Below", value=40.0)
+rsi_sell = st.number_input("RSI Short Above", value=60.0)
+
+ema_fast = st.number_input("Fast EMA", value=50)
+ema_slow = st.number_input("Slow EMA", value=200)
+
+stop_loss_percent = st.number_input("Stop Loss %", value=1.0)
+risk_reward = st.number_input("Risk Reward", value=2.0)
+
 
 @st.cache_data(ttl=60)
-def fetch_data(exchange_name, symbol, timeframe, limit):
-    exchange_class = getattr(ccxt, exchange_name)
-    exchange = exchange_class({
-        "enableRateLimit": True,
-        "timeout": 30000,
-    })
+def get_data(symbol, timeframe, limit):
+    exchanges = [
+        ("Binance", ccxt.binance),
+        ("KuCoin", ccxt.kucoin),
+        ("OKX", ccxt.okx),
+    ]
 
-    data = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+    last_error = None
 
-    df = pd.DataFrame(
-        data,
-        columns=["timestamp", "open", "high", "low", "close", "volume"]
-    )
+    for exchange_name, exchange_class in exchanges:
+        try:
+            exchange = exchange_class({
+                "enableRateLimit": True,
+                "timeout": 30000,
+            })
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            candles = exchange.fetch_ohlcv(
+                symbol,
+                timeframe=timeframe,
+                limit=int(limit)
+            )
+
+            df = pd.DataFrame(
+                candles,
+                columns=["time", "open", "high", "low", "close", "volume"]
+            )
+
+            df["time"] = pd.to_datetime(df["time"], unit="ms")
+            return df, exchange_name
+
+        except Exception as e:
+            last_error = e
+            continue
+
+    st.error("Could not get data from Binance, KuCoin, or OKX.")
+    st.info(str(last_error))
+    st.stop()
+
+
+def analyze(df):
+    df["rsi"] = RSIIndicator(df["close"], window=14).rsi()
+    df["ema_fast"] = EMAIndicator(df["close"], window=int(ema_fast)).ema_indicator()
+    df["ema_slow"] = EMAIndicator(df["close"], window=int(ema_slow)).ema_indicator()
+    df["signal"] = ""
+
+    for i in range(int(ema_slow), len(df)):
+        rsi = df["rsi"].iloc[i]
+        fast = df["ema_fast"].iloc[i]
+        slow = df["ema_slow"].iloc[i]
+
+        if fast > slow and rsi < rsi_buy:
+            df.at[i, "signal"] = "LONG"
+
+        elif fast < slow and rsi > rsi_sell:
+            df.at[i, "signal"] = "SHORT"
+
     return df
 
-# Fetch market data
-try:
-    df = fetch_data(exchange_name, symbol, timeframe, limit)
 
-except ccxt.base.errors.ExchangeNotAvailable:
-    st.error("Exchange is not available right now, or Streamlit Cloud is blocked by this exchange.")
-    st.info("Try another exchange from the dropdown, such as Kraken or Coinbase.")
-    st.stop()
+def latest_signal(df):
+    last = df.iloc[-1]
+    price = last["close"]
+    signal = last["signal"]
 
-except ccxt.base.errors.NetworkError as e:
-    st.error("Network error while connecting to the exchange.")
-    st.info(str(e))
-    st.stop()
+    if signal == "LONG":
+        stop_loss = price * (1 - stop_loss_percent / 100)
+        take_profit = price + ((price - stop_loss) * risk_reward)
 
-except ccxt.base.errors.BadSymbol:
-    st.error(f"The symbol {symbol} is not available on {exchange_name}. Try another exchange or symbol.")
-    st.stop()
+    elif signal == "SHORT":
+        stop_loss = price * (1 + stop_loss_percent / 100)
+        take_profit = price - ((stop_loss - price) * risk_reward)
 
-except Exception as e:
-    st.error("Unexpected error while loading market data.")
-    st.info(str(e))
-    st.stop()
+    else:
+        stop_loss = None
+        take_profit = None
 
-if df.empty:
-    st.error("No data returned from the exchange.")
-    st.stop()
+    return signal, price, stop_loss, take_profit
 
-# Technical indicators
-df["rsi"] = RSIIndicator(close=df["close"], window=14).rsi()
 
-macd = MACD(close=df["close"])
-df["macd"] = macd.macd()
-df["macd_signal"] = macd.macd_signal()
+def draw_chart(df):
+    fig, ax = plt.subplots(figsize=(12, 6))
 
-bb = BollingerBands(close=df["close"], window=20, window_dev=2)
-df["bb_high"] = bb.bollinger_hband()
-df["bb_low"] = bb.bollinger_lband()
+    ax.plot(df["time"], df["close"], label="Price")
+    ax.plot(df["time"], df["ema_fast"], label=f"EMA {ema_fast}")
+    ax.plot(df["time"], df["ema_slow"], label=f"EMA {ema_slow}")
 
-latest = df.iloc[-1]
+    long_signals = df[df["signal"] == "LONG"]
+    short_signals = df[df["signal"] == "SHORT"]
 
-# Trading signal
-signal = "HOLD"
-reason = "No strong signal."
+    ax.scatter(long_signals["time"], long_signals["close"], marker="^", s=100, label="LONG")
+    ax.scatter(short_signals["time"], short_signals["close"], marker="v", s=100, label="SHORT")
 
-if latest["rsi"] < 30 and latest["macd"] > latest["macd_signal"]:
-    signal = "BUY"
-    reason = "RSI is oversold and MACD is bullish."
+    ax.set_title(f"{symbol} Strategy Chart")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Price")
+    ax.legend()
 
-elif latest["rsi"] > 70 and latest["macd"] < latest["macd_signal"]:
-    signal = "SELL"
-    reason = "RSI is overbought and MACD is bearish."
+    fig.autofmt_xdate()
+    return fig
 
-# Display metrics
-col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Latest Price", round(latest["close"], 2))
-col2.metric("RSI", round(latest["rsi"], 2))
-col3.metric("MACD", round(latest["macd"], 4))
-col4.metric("Signal", signal)
+if st.button("Run Bot"):
+    df, exchange_used = get_data(symbol, timeframe, limit)
+    df = analyze(df)
 
-st.subheader("Signal Explanation")
-st.write(reason)
+    signal, price, stop_loss, take_profit = latest_signal(df)
 
-# Price chart
-st.subheader("Price Chart")
+    st.subheader("Latest Result")
+    st.write("Exchange Used:", exchange_used)
+    st.write("Price:", round(price, 2))
+    st.write("Signal:", signal if signal else "WAIT")
 
-fig, ax = plt.subplots(figsize=(12, 5))
-ax.plot(df["timestamp"], df["close"], label="Close Price")
-ax.plot(df["timestamp"], df["bb_high"], linestyle="--", label="Bollinger High")
-ax.plot(df["timestamp"], df["bb_low"], linestyle="--", label="Bollinger Low")
-ax.set_xlabel("Time")
-ax.set_ylabel("Price")
-ax.legend()
-st.pyplot(fig)
+    if stop_loss:
+        st.write("Stop Loss:", round(stop_loss, 2))
+        st.write("Take Profit:", round(take_profit, 2))
 
-# RSI chart
-st.subheader("RSI Chart")
+    st.subheader("Chart")
+    st.pyplot(draw_chart(df))
 
-fig2, ax2 = plt.subplots(figsize=(12, 3))
-ax2.plot(df["timestamp"], df["rsi"], label="RSI")
-ax2.axhline(70, linestyle="--")
-ax2.axhline(30, linestyle="--")
-ax2.set_xlabel("Time")
-ax2.set_ylabel("RSI")
-ax2.legend()
-st.pyplot(fig2)
+    st.subheader("Latest Candles")
+    st.dataframe(df.tail(20), use_container_width=True)
 
-# Data table
-st.subheader("Recent Data")
-st.dataframe(df.tail(20), use_container_width=True)
-
-st.warning("Educational use only. This is not financial advice.")
+    st.warning("Educational use only. This is not financial advice.")
