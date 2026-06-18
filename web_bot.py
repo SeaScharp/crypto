@@ -5,7 +5,16 @@ import matplotlib.pyplot as plt
 
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+est_now = datetime.now(
+    ZoneInfo("America/New_York")
+)
+
+st.caption(
+    f"Current Eastern Time: {est_now.strftime('%Y-%m-%d %I:%M:%S %p')}"
+)
 
 st.set_page_config(page_title="Crypto Strategy Bot", layout="wide")
 
