@@ -5,16 +5,7 @@ import matplotlib.pyplot as plt
 
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-est_now = datetime.now(
-    ZoneInfo("America/New_York")
-)
-
-st.caption(
-    f"Current Eastern Time: {est_now.strftime('%Y-%m-%d %I:%M:%S %p')}"
-)
 
 st.set_page_config(page_title="Crypto Strategy Bot", layout="wide")
 
@@ -88,7 +79,8 @@ def get_data(symbol, timeframe, limit):
                 columns=["time", "open", "high", "low", "close", "volume"]
             )
 
-            df["time"] = pd.to_datetime(df["time"], unit="ms")
+            df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
+            df["time"] = df["time"].dt.tz_convert("America/Toronto")
             return df, exchange_name
 
         except Exception as e:
@@ -153,7 +145,7 @@ def draw_chart(df):
     ax.scatter(long_signals["time"], long_signals["close"], marker="^", s=100, label="LONG")
     ax.scatter(short_signals["time"], short_signals["close"], marker="v", s=100, label="SHORT")
 
-    ax.set_title(f"{symbol} Strategy Chart")
+    ax.set_title(f"{symbol} Strategy Chart (Eastern Time)")
     ax.set_xlabel("Time")
     ax.set_ylabel("Price")
     ax.legend()
@@ -166,7 +158,12 @@ if st.button("Run Bot"):
     df, exchange_used = get_data(symbol, timeframe, limit)
     df = analyze(df)
 
-    signal, price, stop_loss, take_profit = latest_signal(df)
+    last_time = df.iloc[-1]["time"]
+
+    st.write(
+        "Last Candle Time:",
+        last_time.strftime("%Y-%m-%d %I:%M %p %Z")
+    )
 
     st.subheader("Latest Result")
     st.write("Exchange Used:", exchange_used)
