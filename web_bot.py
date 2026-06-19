@@ -265,35 +265,6 @@ if st.button("Run Bot"):
     if "ANTHROPIC_API_KEY" not in st.secrets:
         st.warning("Anthropic API key is missing. Add it in Streamlit Cloud Secrets.")
     else:
-if st.button("Run Bot"):
-    df, exchange_used = get_data(symbol, timeframe, limit)
-    df = analyze(df)
-
-    signal, price, stop_loss, take_profit = latest_signal(df)
-    latest = df.iloc[-1]
-    last_time = latest["time"]
-
-    st.subheader("Latest Result")
-    st.write("Exchange Used:", exchange_used)
-    st.write("Last Candle Time:", last_time.strftime("%Y-%m-%d %I:%M %p %Z"))
-    st.write("Price:", round(price, 2))
-    st.write("Signal:", signal if signal else "WAIT")
-
-    if stop_loss:
-        st.write("Stop Loss:", round(stop_loss, 2))
-        st.write("Take Profit:", round(take_profit, 2))
-
-    st.subheader("Chart")
-    st.pyplot(draw_chart(df))
-
-    st.subheader("Latest Candles")
-    st.dataframe(df.tail(20), use_container_width=True)
-
-    st.subheader("Claude AI Analysis")
-
-    if "ANTHROPIC_API_KEY" not in st.secrets:
-        st.warning("Anthropic API key is missing. Add it in Streamlit Cloud Secrets.")
-    else:
         with st.spinner("Claude is analyzing the setup..."):
             ai_result = claude_ai_analysis(
                 symbol=symbol,
