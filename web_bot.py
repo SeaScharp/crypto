@@ -221,8 +221,13 @@ Do not promise profit.
 Do not say the trade is guaranteed.
 """
 
+    model_name = st.secrets.get(
+        "ANTHROPIC_MODEL",
+        "claude-sonnet-4-6"
+    )
+    st.write("Using Anthropic model:", model_name)
     message = client.messages.create(
-        model="claude-4-sonnet-20250514",
+        model=model_name,
         max_tokens=1000,
         temperature=0.3,
         messages=[
