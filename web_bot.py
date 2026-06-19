@@ -1,7 +1,6 @@
 import ccxt
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 import anthropic
 
 from ta.momentum import RSIIndicator
@@ -9,8 +8,8 @@ from ta.trend import EMAIndicator
 
 
 st.set_page_config(page_title="Crypto Strategy Bot", layout="wide")
-
 st.title("Crypto Strategy Bot with Claude AI")
+
 
 symbol = st.selectbox(
     "Trading Pair",
@@ -20,12 +19,7 @@ symbol = st.selectbox(
 
 st.subheader("Trade Settings")
 
-leverage = st.selectbox(
-    "Leverage",
-    [1, 2, 3, 5, 10, 15, 20, 25, 50],
-    index=4
-)
-
+leverage = st.selectbox("Leverage", [1, 2, 3, 5, 10, 15, 20, 25, 50], index=4)
 account_size = st.number_input("Account Balance ($)", value=1000.0)
 risk_percent = st.number_input("Risk Per Trade (%)", value=2.0)
 
@@ -35,12 +29,7 @@ timeframe = st.selectbox(
     index=2
 )
 
-limit = st.number_input(
-    "Number of candles",
-    min_value=250,
-    max_value=1000,
-    value=300
-)
+limit = st.number_input("Number of candles", min_value=250, max_value=1000, value=300)
 
 rsi_buy = st.number_input("RSI Long Below", value=40.0)
 rsi_sell = st.number_input("RSI Short Above", value=60.0)
@@ -134,47 +123,13 @@ def latest_signal(df):
     return signal, price, stop_loss, take_profit
 
 
-def draw_chart(df):
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    ax.plot(df["time"], df["close"], label="Price")
-    ax.plot(df["time"], df["ema_fast"], label=f"EMA {ema_fast}")
-    ax.plot(df["time"], df["ema_slow"], label=f"EMA {ema_slow}")
-
-    long_signals = df[df["signal"] == "LONG"]
-    short_signals = df[df["signal"] == "SHORT"]
-
-    ax.scatter(
-        long_signals["time"],
-        long_signals["close"],
-        marker="^",
-        s=100,
-        label="LONG"
-    )
-
-    ax.scatter(
-        short_signals["time"],
-        short_signals["close"],
-        marker="v",
-        s=100,
-        label="SHORT"
-    )
-
-    ax.set_title(f"{symbol} Strategy Chart - Eastern Time")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Price")
-    ax.legend()
-
-    fig.autofmt_xdate()
-    return fig
-
-
 def claude_ai_analysis(
     symbol,
     timeframe,
     exchange_used,
     price,
     signal,
+    confidence,
     rsi,
     ema_fast_value,
     ema_slow_value,
@@ -188,6 +143,8 @@ def claude_ai_analysis(
         api_key=st.secrets["ANTHROPIC_API_KEY"]
     )
 
+    model_name = st.secrets.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
     prompt = f"""
 You are analyzing a crypto trading setup for educational purposes only.
 
@@ -196,6 +153,7 @@ Exchange Used: {exchange_used}
 Timeframe: {timeframe}
 Current Price: {price}
 Signal: {signal}
+Confidence Score: {confidence}%
 
 RSI: {rsi}
 Fast EMA: {ema_fast_value}
@@ -213,19 +171,14 @@ Explain in simple practical language:
 1. Why the bot gave this signal
 2. What the RSI means
 3. What the EMA trend means
-4. Whether this looks like high, medium, or low risk
+4. Whether this looks high, medium, or low risk
 5. What should be watched before entering
-6. A clear warning that this is not financial advice
+6. Reminder that this is not financial advice
 
 Do not promise profit.
 Do not say the trade is guaranteed.
 """
 
-    model_name = st.secrets.get(
-        "ANTHROPIC_MODEL",
-        "claude-sonnet-4-6"
-    )
-    st.write("Using Anthropic model:", model_name)
     message = client.messages.create(
         model=model_name,
         max_tokens=1000,
@@ -249,21 +202,35 @@ if st.button("Run Bot"):
     latest = df.iloc[-1]
     last_time = latest["time"]
 
+    confidence = 50
+
+    if signal == "LONG":
+        confidence += 15
+
+    if signal == "SHORT":
+        confidence += 15
+
+    if latest["rsi"] < 30 or latest["rsi"] > 70:
+        confidence += 15
+
+    confidence = min(confidence, 95)
+
     st.subheader("Latest Result")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Price", f"${price:,.2f}")
+    col2.metric("Signal", signal if signal else "WAIT")
+    col3.metric("RSI", round(latest["rsi"], 2))
+    col4.metric("AI Confidence", f"{confidence}%")
+
     st.write("Exchange Used:", exchange_used)
     st.write("Last Candle Time:", last_time.strftime("%Y-%m-%d %I:%M %p %Z"))
-    st.write("Price:", round(price, 2))
-    st.write("Signal:", signal if signal else "WAIT")
 
     if stop_loss:
-        st.write("Stop Loss:", round(stop_loss, 2))
-        st.write("Take Profit:", round(take_profit, 2))
-
-    st.subheader("Chart")
-    st.pyplot(draw_chart(df))
-
-    st.subheader("Latest Candles")
-    st.dataframe(df.tail(20), use_container_width=True)
+        col5, col6 = st.columns(2)
+        col5.metric("Stop Loss", f"${stop_loss:,.2f}")
+        col6.metric("Take Profit", f"${take_profit:,.2f}")
 
     st.subheader("Claude AI Analysis")
 
@@ -277,6 +244,7 @@ if st.button("Run Bot"):
                 exchange_used=exchange_used,
                 price=round(price, 2),
                 signal=signal if signal else "WAIT",
+                confidence=confidence,
                 rsi=round(latest["rsi"], 2),
                 ema_fast_value=round(latest["ema_fast"], 2),
                 ema_slow_value=round(latest["ema_slow"], 2),
