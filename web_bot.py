@@ -221,17 +221,17 @@ Do not promise profit.
 Do not say the trade is guaranteed.
 """
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        temperature=0.3,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+message = client.messages.create(
+    model="claude-4-sonnet-20250514",
+    max_tokens=1000,
+    temperature=0.3,
+    messages=[
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+)
 
     return message.content[0].text
 
