@@ -2,6 +2,7 @@ import ccxt
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import anthropic
 
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator
@@ -9,7 +10,7 @@ from ta.trend import EMAIndicator
 
 st.set_page_config(page_title="Crypto Strategy Bot", layout="wide")
 
-st.title("Crypto Strategy Bot")
+st.title("Crypto Strategy Bot with Claude AI")
 
 symbol = st.selectbox(
     "Trading Pair",
@@ -81,6 +82,7 @@ def get_data(symbol, timeframe, limit):
 
             df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
             df["time"] = df["time"].dt.tz_convert("America/Toronto")
+
             return df, exchange_name
 
         except Exception as e:
@@ -142,10 +144,23 @@ def draw_chart(df):
     long_signals = df[df["signal"] == "LONG"]
     short_signals = df[df["signal"] == "SHORT"]
 
-    ax.scatter(long_signals["time"], long_signals["close"], marker="^", s=100, label="LONG")
-    ax.scatter(short_signals["time"], short_signals["close"], marker="v", s=100, label="SHORT")
+    ax.scatter(
+        long_signals["time"],
+        long_signals["close"],
+        marker="^",
+        s=100,
+        label="LONG"
+    )
 
-    ax.set_title(f"{symbol} Strategy Chart (Eastern Time)")
+    ax.scatter(
+        short_signals["time"],
+        short_signals["close"],
+        marker="v",
+        s=100,
+        label="SHORT"
+    )
+
+    ax.set_title(f"{symbol} Strategy Chart - Eastern Time")
     ax.set_xlabel("Time")
     ax.set_ylabel("Price")
     ax.legend()
@@ -154,13 +169,80 @@ def draw_chart(df):
     return fig
 
 
+def claude_ai_analysis(
+    symbol,
+    timeframe,
+    exchange_used,
+    price,
+    signal,
+    rsi,
+    ema_fast_value,
+    ema_slow_value,
+    stop_loss,
+    take_profit,
+    leverage,
+    account_size,
+    risk_percent
+):
+    client = anthropic.Anthropic(
+        api_key=st.secrets["ANTHROPIC_API_KEY"]
+    )
+
+    prompt = f"""
+You are analyzing a crypto trading setup for educational purposes only.
+
+Trading Pair: {symbol}
+Exchange Used: {exchange_used}
+Timeframe: {timeframe}
+Current Price: {price}
+Signal: {signal}
+
+RSI: {rsi}
+Fast EMA: {ema_fast_value}
+Slow EMA: {ema_slow_value}
+
+Stop Loss: {stop_loss}
+Take Profit: {take_profit}
+
+Leverage: {leverage}x
+Account Balance: ${account_size}
+Risk Per Trade: {risk_percent}%
+
+Explain in simple practical language:
+
+1. Why the bot gave this signal
+2. What the RSI means
+3. What the EMA trend means
+4. Whether this looks like high, medium, or low risk
+5. What should be watched before entering
+6. A clear warning that this is not financial advice
+
+Do not promise profit.
+Do not say the trade is guaranteed.
+"""
+
+    message = client.messages.create(
+        model="claude-3-5-sonnet-latest",
+        max_tokens=1000,
+        temperature=0.3,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    return message.content[0].text
+
+
 if st.button("Run Bot"):
     df, exchange_used = get_data(symbol, timeframe, limit)
     df = analyze(df)
 
     signal, price, stop_loss, take_profit = latest_signal(df)
-
-    last_time = df.iloc[-1]["time"]
+    latest = df.iloc[-1]
+    last_time = latest["time"]
 
     st.subheader("Latest Result")
     st.write("Exchange Used:", exchange_used)
@@ -177,5 +259,30 @@ if st.button("Run Bot"):
 
     st.subheader("Latest Candles")
     st.dataframe(df.tail(20), use_container_width=True)
+
+    st.subheader("Claude AI Analysis")
+
+    if "ANTHROPIC_API_KEY" not in st.secrets:
+        st.warning("Anthropic API key is missing. Add it in Streamlit Cloud Secrets.")
+    else:
+        if st.button("Ask Claude to Analyze This Trade"):
+            with st.spinner("Claude is analyzing the setup..."):
+                ai_result = claude_ai_analysis(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    exchange_used=exchange_used,
+                    price=round(price, 2),
+                    signal=signal if signal else "WAIT",
+                    rsi=round(latest["rsi"], 2),
+                    ema_fast_value=round(latest["ema_fast"], 2),
+                    ema_slow_value=round(latest["ema_slow"], 2),
+                    stop_loss=round(stop_loss, 2) if stop_loss else "N/A",
+                    take_profit=round(take_profit, 2) if take_profit else "N/A",
+                    leverage=leverage,
+                    account_size=account_size,
+                    risk_percent=risk_percent
+                )
+
+                st.write(ai_result)
 
     st.warning("Educational use only. This is not financial advice.")
