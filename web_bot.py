@@ -42,14 +42,6 @@ timeframe = st.selectbox(
     index=3
 )
 
-stop_loss_percent = st.number_input(
-    "Stop Loss %",
-    min_value=0.1,
-    max_value=20.0,
-    value=1.0,
-    step=0.1
-)
-
 risk_reward = st.number_input(
     "Risk / Reward",
     min_value=1.0,
@@ -59,7 +51,7 @@ risk_reward = st.number_input(
 )
 
 # =====================================
-# GET MARKET DATA
+# DATA DOWNLOAD
 # =====================================
 
 @st.cache_data(ttl=60)
@@ -72,7 +64,7 @@ def get_market_data(symbol, timeframe):
     candles = exchange.fetch_ohlcv(
         symbol,
         timeframe,
-        limit=250
+        limit=300
     )
 
     df = pd.DataFrame(
@@ -90,7 +82,7 @@ def get_market_data(symbol, timeframe):
     return df
 
 # =====================================
-# ANALYZE TREND
+# MARKET ANALYSIS
 # =====================================
 
 def analyze_market(df):
@@ -124,37 +116,38 @@ def analyze_market(df):
     return current_price, direction
 
 # =====================================
-# CALCULATE LEVELS
+# SMART ENTRY CALCULATION
 # =====================================
 
-def calculate_levels(price, direction):
+def calculate_levels(df, direction):
+
+    recent_high = df["high"].tail(20).max()
+    recent_low = df["low"].tail(20).min()
 
     if "LONG" in direction:
 
-        entry = price
+        entry = recent_low
 
-        stop_loss = entry * (
-            1 - stop_loss_percent / 100
-        )
+        stop_loss = recent_low * 0.995
+
+        risk = entry - stop_loss
 
         take_profit = entry + (
-            (entry - stop_loss)
-            * risk_reward
+            risk * risk_reward
         )
 
         return entry, stop_loss, take_profit
 
     elif "SHORT" in direction:
 
-        entry = price
+        entry = recent_high
 
-        stop_loss = entry * (
-            1 + stop_loss_percent / 100
-        )
+        stop_loss = recent_high * 1.005
+
+        risk = stop_loss - entry
 
         take_profit = entry - (
-            (stop_loss - entry)
-            * risk_reward
+            risk * risk_reward
         )
 
         return entry, stop_loss, take_profit
@@ -162,14 +155,37 @@ def calculate_levels(price, direction):
     return None, None, None
 
 # =====================================
-# SIGNAL BUTTON
+# SIGNAL STRENGTH
+# =====================================
+
+def get_signal_strength(df):
+
+    latest = df.iloc[-1]
+
+    ema50 = latest["ema50"]
+    ema200 = latest["ema200"]
+
+    gap = abs(
+        ((ema50 - ema200) / ema200) * 100
+    )
+
+    if gap > 3:
+        return "STRONG"
+
+    elif gap > 1:
+        return "MODERATE"
+
+    return "WEAK"
+
+# =====================================
+# MAIN BUTTON
 # =====================================
 
 if st.button("Get Signal"):
 
     try:
 
-        with st.spinner("Analyzing market..."):
+        with st.spinner("Analyzing Market..."):
 
             df = get_market_data(
                 symbol,
@@ -178,8 +194,10 @@ if st.button("Get Signal"):
 
             current_price, direction = analyze_market(df)
 
+            strength = get_signal_strength(df)
+
             entry, stop_loss, take_profit = calculate_levels(
-                current_price,
+                df,
                 direction
             )
 
@@ -201,7 +219,17 @@ if st.button("Get Signal"):
                 direction
             )
 
-        if entry:
+        st.metric(
+            "Signal Strength",
+            strength
+        )
+
+        if strength == "WEAK":
+            st.warning(
+                "No trade recommended. Trend is weak."
+            )
+
+        else:
 
             st.metric(
                 "Best Entry",
@@ -218,14 +246,6 @@ if st.button("Get Signal"):
                 f"${take_profit:,.4f}"
             )
 
-        else:
-
-            st.warning(
-                "No trade setup found."
-            )
-
     except Exception as e:
 
-        st.error(
-            f"Error: {str(e)}"
-        )
+        st.error(str(e))
