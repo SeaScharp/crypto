@@ -56,8 +56,7 @@ risk_reward = st.number_input(
 
 @st.cache_data(ttl=60)
 def get_market_data(symbol, timeframe):
-
-    exchange = ccxt.bybit({
+    exchange = ccxt.kraken({
         "enableRateLimit": True
     })
 
