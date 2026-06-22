@@ -193,68 +193,87 @@ Do not say the trade is guaranteed.
 
     return message.content[0].text
 
-
 if st.button("Run Bot"):
-    df, exchange_used = get_data(symbol, timeframe, limit)
+
+    df = get_data(symbol, timeframe, limit)
     df = analyze(df)
 
-    signal, price, stop_loss, take_profit = latest_signal(df)
-    latest = df.iloc[-1]
-    last_time = latest["time"]
+    last = df.iloc[-1]
 
-    confidence = 50
+    current_price = last["close"]
+
+    fast = last["ema_fast"]
+    slow = last["ema_slow"]
+
+    signal = "WAIT"
+
+    if fast > slow:
+        signal = "LONG"
+
+    elif fast < slow:
+        signal = "SHORT"
 
     if signal == "LONG":
-        confidence += 15
 
-    if signal == "SHORT":
-        confidence += 15
+        entry = current_price
 
-    if latest["rsi"] < 30 or latest["rsi"] > 70:
-        confidence += 15
+        stop_loss = entry * (
+            1 - stop_loss_percent / 100
+        )
 
-    confidence = min(confidence, 95)
+        take_profit = entry + (
+            (entry - stop_loss)
+            * risk_reward
+        )
 
-    st.subheader("Latest Result")
+    elif signal == "SHORT":
 
-    col1, col2, col3, col4 = st.columns(4)
+        entry = current_price
 
-    col1.metric("Price", f"${price:,.2f}")
-    col2.metric("Signal", signal if signal else "WAIT")
-    col3.metric("RSI", round(latest["rsi"], 2))
-    col4.metric("AI Confidence", f"{confidence}%")
+        stop_loss = entry * (
+            1 + stop_loss_percent / 100
+        )
 
-    st.write("Exchange Used:", exchange_used)
-    st.write("Last Candle Time:", last_time.strftime("%Y-%m-%d %I:%M %p %Z"))
+        take_profit = entry - (
+            (stop_loss - entry)
+            * risk_reward
+        )
 
-    if stop_loss:
-        col5, col6 = st.columns(2)
-        col5.metric("Stop Loss", f"${stop_loss:,.2f}")
-        col6.metric("Take Profit", f"${take_profit:,.2f}")
-
-    st.subheader("Claude AI Analysis")
-
-    if "ANTHROPIC_API_KEY" not in st.secrets:
-        st.warning("Anthropic API key is missing. Add it in Streamlit Cloud Secrets.")
     else:
-        with st.spinner("Claude is analyzing the setup..."):
-            ai_result = claude_ai_analysis(
-                symbol=symbol,
-                timeframe=timeframe,
-                exchange_used=exchange_used,
-                price=round(price, 2),
-                signal=signal if signal else "WAIT",
-                confidence=confidence,
-                rsi=round(latest["rsi"], 2),
-                ema_fast_value=round(latest["ema_fast"], 2),
-                ema_slow_value=round(latest["ema_slow"], 2),
-                stop_loss=round(stop_loss, 2) if stop_loss else "N/A",
-                take_profit=round(take_profit, 2) if take_profit else "N/A",
-                leverage=leverage,
-                account_size=account_size,
-                risk_percent=risk_percent
-            )
 
-            st.write(ai_result)
+        entry = None
+        stop_loss = None
+        take_profit = None
 
-    st.warning("Educational use only. This is not financial advice.")
+    st.header("Trading Signal")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Current Price",
+            f"${current_price:,.2f}"
+        )
+
+    with col2:
+        st.metric(
+            "Market Direction",
+            signal
+        )
+
+    if signal != "WAIT":
+
+        st.metric(
+            "Best Entry",
+            f"${entry:,.2f}"
+        )
+
+        st.metric(
+            "Stop Loss",
+            f"${stop_loss:,.2f}"
+        )
+
+        st.metric(
+            "Take Profit",
+            f"${take_profit:,.2f}"
+        )
