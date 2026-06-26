@@ -1,7 +1,5 @@
 streamlit
 ccxt
 pandas
-numpy
-matplotlib
 ta
-anthropic
+numpy
